@@ -2,15 +2,16 @@
 // Copyright (c) 2015 HPE Software Inc. All rights reserved.
 // Copyright (c) 2013 ActiveState Software Inc. All rights reserved.
 
-//nxadm/tail provides a Go library that emulates the features of the BSD `tail`
-//program. The library comes with full support for truncation/move detection as
-//it is designed to work with log rotation tools. The library works on all
-//operating systems supported by Go, including POSIX systems like Linux and
-//*BSD, and MS Windows. Go 1.9 is the oldest compiler release supported.
+// nxadm/tail provides a Go library that emulates the features of the BSD `tail`
+// program. The library comes with full support for truncation/move detection as
+// it is designed to work with log rotation tools. The library works on all
+// operating systems supported by Go, including POSIX systems like Linux and
+// *BSD, and MS Windows. Go 1.9 is the oldest compiler release supported.
 package tail
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -76,6 +77,8 @@ type Config struct {
 	Poll      bool      // Poll for file changes instead of using the default inotify
 	Pipe      bool      // The file is a named pipe (mkfifo)
 
+	Delimiter string
+
 	// Generic IO
 	Follow        bool // Continue looking for new lines (tail -f)
 	MaxLineSize   int  // If non-zero, split longer lines into multiple lines
@@ -103,6 +106,8 @@ type Tail struct {
 	watcher watch.FileWatcher
 	changes *watch.FileChanges
 
+	delimiter string
+
 	tomb.Tomb // provides: Done, Kill, Dying
 
 	lk sync.Mutex
@@ -129,6 +134,11 @@ func TailFile(filename string, config Config) (*Tail, error) {
 		Filename: filename,
 		Lines:    make(chan *Line),
 		Config:   config,
+	}
+
+	t.delimiter = config.Delimiter
+	if config.Delimiter == "" {
+		t.delimiter = "\n"
 	}
 
 	if config.CompleteLines {
@@ -235,9 +245,38 @@ func (tail *Tail) reopen() error {
 	return nil
 }
 
+func (tail *Tail) readUntilDelimiter() ([]byte, error) {
+	delimiter := []byte(tail.delimiter)
+
+	var data []byte
+	for {
+		chunk, err := tail.reader.ReadBytes(delimiter[len(delimiter)-1])
+		if err != nil {
+			if err == io.EOF {
+				println("eof:", string(chunk))
+				return append(data, chunk...), nil
+			}
+			return nil, err
+		}
+
+		// Check if delimiter is found
+		if idx := bytes.Index(chunk, delimiter); idx != -1 {
+			data = append(data, chunk[:idx]...)
+			return data, nil
+		}
+
+		println("cont: ", string(chunk))
+		data = append(data, chunk...)
+	}
+}
+
 func (tail *Tail) readLine() (string, error) {
 	tail.lk.Lock()
-	line, err := tail.reader.ReadString('\n')
+	bytes, err := tail.readUntilDelimiter()
+	line := string(bytes)
+	if err != nil {
+		return line, err
+	}
 	tail.lk.Unlock()
 
 	newlineEnding := strings.HasSuffix(line, "\n")
