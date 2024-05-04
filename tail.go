@@ -272,9 +272,6 @@ func (tail *Tail) readLine() (string, error) {
 	tail.lk.Lock()
 	bytes, err := tail.readUntilDelimiter()
 	line := string(bytes)
-	if err != nil {
-		return line, err
-	}
 	tail.lk.Unlock()
 
 	newlineEnding := strings.HasSuffix(line, "\n")
