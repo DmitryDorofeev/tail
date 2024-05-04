@@ -253,8 +253,7 @@ func (tail *Tail) readUntilDelimiter() ([]byte, error) {
 		chunk, err := tail.reader.ReadBytes(delimiter[len(delimiter)-1])
 		if err != nil {
 			if err == io.EOF {
-				println("eof:", string(chunk))
-				return append(data, chunk...), nil
+				return append(data, chunk...), err
 			}
 			return nil, err
 		}
@@ -265,7 +264,6 @@ func (tail *Tail) readUntilDelimiter() ([]byte, error) {
 			return data, nil
 		}
 
-		println("cont: ", string(chunk))
 		data = append(data, chunk...)
 	}
 }
